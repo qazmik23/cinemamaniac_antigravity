@@ -31,6 +31,19 @@
 5. Сколько стоит один запрос и что сильнее всего влияет на цену?
 
 
+## Датасет
+
+Тестовый датасет `films.json` состоит из **51 фильма**:
+- Базовые записи отбираются из `title.basics.tsv` и обогащаются данными из `title.akas.tsv` и TMDB API (название, страны, языки, описание).
+- Казахстанские фильмы добираются отдельно через TMDB API (`/discover/movie` с `with_origin_country=KZ`).
+
+Генерация датасета с выбором количества фильмов:
+
+```powershell
+uv run python generate_films.py --count 40 --kz-count 12
+```
+
+
 ## Acknowledgements & Data Source
 Movie metadata is provided by IMDb non-commercial datasets.
 > Information courtesy of [IMDb](https://www.imdb.com). Used with permission.
