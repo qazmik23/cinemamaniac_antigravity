@@ -1,4 +1,4 @@
-# Киноманьяк: подбор фильмов по каталогу
+# Киноманьяк: подбор фильмов по каталогу (учебный проект)
 
 Программа подбирает от одного до трёх фильмов из локального каталога `films.json` по запросу пользователя. Модель отвечает только за выбор `film_id` и короткое объяснение (`why`), а название, год, длительность и описание берутся строго из каталога. Код сам проверяет, что в ответе нет выдуманных или повторяющихся фильмов, и записывает каждый вызов в журнал `calls.jsonl`.
 
@@ -29,3 +29,11 @@
 
 4. Какое решение без ML записано в пяти вопросах лекции 1 и чего ему не хватает на запросах из `queries.json`?
 5. Сколько стоит один запрос и что сильнее всего влияет на цену?
+
+
+## Acknowledgements & Data Source
+Movie metadata is provided by IMDb non-commercial datasets.
+> Information courtesy of [IMDb](https://www.imdb.com). Used with permission.
+
+Some information from IMDb will riched by tmdb database
+This product uses the TMDB API but is not endorsed or certified by TMDB.

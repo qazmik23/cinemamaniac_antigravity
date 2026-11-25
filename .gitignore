@@ -1,0 +1,6 @@
+*.tsv
+*.tsv.gz
+.env
+.env.*
+!.env.example
+!.env.template
