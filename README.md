@@ -35,5 +35,5 @@
 Movie metadata is provided by IMDb non-commercial datasets.
 > Information courtesy of [IMDb](https://www.imdb.com). Used with permission.
 
-Some information from IMDb will riched by tmdb database
-This product uses the TMDB API but is not endorsed or certified by TMDB.
+Some information from IMDb will riched by tmdb database.
+>This product uses the TMDB API but is not endorsed or certified by TMDB.
