@@ -87,7 +87,7 @@ def test_foreign_id_rejected(tmp_path, monkeypatch):
     assert outcome == "invalid"
     assert ids == []
     logged = json.loads(log_file.read_text(encoding="utf-8").strip())
-    assert logged["rejected_ids"] == ["tt9999999"]
+    assert logged["rejected"] == ["tt9999999"]
 
 
 def test_duplicate_ids_deduplicated(tmp_path, monkeypatch):

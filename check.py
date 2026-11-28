@@ -16,7 +16,7 @@ def _read_last_rejected_count() -> int:
     if not lines:
         return 0
     last = json.loads(lines[-1])
-    return len(last.get("rejected_ids", []))
+    return len(last.get("rejected", []))
 
 
 def main() -> None:

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from dotenv import load_dotenv
-from openai import APIConnectionError, APIStatusError, OpenAI
+from openai import APIConnectionError, APIStatusError, LengthFinishReasonError, OpenAI
 from pydantic import BaseModel, Field, ValidationError
 
 CALLS_LOG = Path("calls.jsonl")
@@ -86,7 +86,7 @@ def _log_call(
         },
         "outcome": outcome,
         "ids": ids,
-        "rejected_ids": rejected_ids,
+        "rejected": rejected_ids,
         "tokens": {
             "prompt": prompt_tokens,
             "completion": completion_tokens,
@@ -191,6 +191,9 @@ def pick(
                         if why:
                             print(f"  Почему подходит: {why}")
 
+    except LengthFinishReasonError:
+        outcome = "length"
+        print("Ответ модели обрезан по лимиту токенов.")
     except APIConnectionError:
         outcome = "no_connection"
         print("Нет связи с сервером.")
