@@ -130,6 +130,10 @@ def _log_call(
             "completion": completion_tokens,
             "total": prompt_tokens + completion_tokens,
         },
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+        },
         "duration_sec": round(duration_sec, 3),
         "cost": _estimate_cost(model, prompt_tokens, completion_tokens),
     }
