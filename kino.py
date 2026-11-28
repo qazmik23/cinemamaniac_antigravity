@@ -215,7 +215,7 @@ def _parse_filters(
         step="filters",
         model=model,
         query=query,
-        catalog_ids=catalog_ids,
+        catalog_ids=[],
         outcome=outcome,
         ids=[],
         rejected_ids=[],

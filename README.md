@@ -105,3 +105,21 @@ Movie metadata is provided by IMDb non-commercial datasets.
 
 Some information from IMDb will riched by tmdb database.
 >This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+## Сравнение моделей (Rare)
+
+Прогон 30 запросов из `queries.json` по 3 раза на каждой модели (`uv run check.py --model <модель> --runs 3`):
+
+| Модель | Доля пройденных | Чужие / нарушающие `id` (за 3 прогона) | Среднее время прогона | Суммарная стоимость (3 прогона) |
+| --- | --- | --- | --- | --- |
+| `gpt-4o-mini` | 77.8% | 0 | 76.2 сек | \$0.043417 |
+| `gpt-4o` | 83.3% | 2 | 51.0 сек | \$0.789762 |
+
+## Сравнение моделей (Rare)
+
+Прогон 30 запросов из `queries.json` по 3 раза на каждой модели (`uv run check.py --model <модель> --runs 3`):
+
+| Модель | Доля пройденных | Чужие / нарушающие `id` (за 3 прогона) | Среднее время прогона | Суммарная стоимость (3 прогона) |
+| --- | --- | --- | --- | --- |
+| `gpt-4o-mini` | 77.8% | 0 | 76.2 сек | \$0.043417 |
+| `gpt-4o` | 83.3% | 2 | 51.0 сек | \$0.789762 |
