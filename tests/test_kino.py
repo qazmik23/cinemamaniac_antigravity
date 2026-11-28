@@ -86,7 +86,7 @@ def test_foreign_id_rejected(tmp_path, monkeypatch):
     outcome, ids = kino.pick(client, "gpt-4o-mini", "что-нибудь", SAMPLE_FILMS)
     assert outcome == "invalid"
     assert ids == []
-    logged = json.loads(log_file.read_text(encoding="utf-8").strip())
+    logged = json.loads(log_file.read_text(encoding="utf-8").splitlines()[-1])
     assert logged["rejected"] == ["tt9999999"]
 
 
@@ -182,3 +182,30 @@ def test_missing_why_invalid(tmp_path, monkeypatch):
     outcome, ids = kino.pick(client, "gpt-4o-mini", "история", SAMPLE_FILMS)
     assert outcome == "invalid"
     assert ids == []
+
+
+def test_filter_violation_rejected(tmp_path, monkeypatch):
+    log_file = tmp_path / "calls.jsonl"
+    monkeypatch.setattr(kino, "CALLS_LOG", log_file)
+
+    def parse(**kwargs):
+        if kwargs.get("response_format") is kino.Filters:
+            parsed = kino.Filters(max_minutes=90)
+        else:
+            parsed = kino.RecommendationResponse(
+                status="ok",
+                reason="Выбор.",
+                picks=[kino.PickItem(film_id="tt7985648", why="155 минут, нарушает фильтр.")],
+            )
+        msg = SimpleNamespace(parsed=parsed, refusal=None, content=None)
+        choice = SimpleNamespace(message=msg, finish_reason="stop")
+        usage = SimpleNamespace(prompt_tokens=100, completion_tokens=20)
+        return SimpleNamespace(choices=[choice], usage=usage)
+
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(parse=parse)))
+    outcome, ids = kino.pick(client, "gpt-4o-mini", "до 90 минут", SAMPLE_FILMS)
+    assert outcome == "invalid"
+    assert ids == []
+    lines = [json.loads(line) for line in log_file.read_text(encoding="utf-8").splitlines()]
+    assert [l["step"] for l in lines] == ["filters", "choice"]
+    assert lines[1]["rejected"] == ["tt7985648"]

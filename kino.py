@@ -39,6 +39,15 @@ SYSTEM_PROMPT = """
 }"""
 
 
+class Filters(BaseModel):
+    max_minutes: int | None = None
+    year_from: int | None = None
+    year_to: int | None = None
+    languages: list[str] | None = None
+    exclude_genres: list[str] | None = None
+    must_genres: list[str] | None = None
+
+
 class PickItem(BaseModel):
     film_id: str
     why: str
@@ -60,6 +69,30 @@ def _normalize_catalog(films: list[dict[str, Any]] | dict[str, dict[str, Any]]) 
     return film_list, by_id
 
 
+def _extract_vocab(film_list: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
+    genres = sorted({g for f in film_list for g in f.get("genres", [])})
+    languages = sorted({l for f in film_list for l in f.get("languages", [])})
+    return genres, languages
+
+
+def _matches_filters(film: dict[str, Any], flt: Filters) -> bool:
+    if flt.max_minutes is not None and (film.get("minutes") or 0) > flt.max_minutes:
+        return False
+    if flt.year_from is not None and (film.get("year") or 0) < flt.year_from:
+        return False
+    if flt.year_to is not None and (film.get("year") or 0) > flt.year_to:
+        return False
+    film_langs = set(film.get("languages", []))
+    if flt.languages and not (film_langs & set(flt.languages)):
+        return False
+    film_genres = set(film.get("genres", []))
+    if flt.must_genres and not set(flt.must_genres).issubset(film_genres):
+        return False
+    if flt.exclude_genres and (film_genres & set(flt.exclude_genres)):
+        return False
+    return True
+
+
 def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
     in_price, out_price = PRICE.get(model, (0.0, 0.0))
     return round((prompt_tokens * in_price + completion_tokens * out_price) / 1_000_000, 6)
@@ -67,6 +100,7 @@ def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> fl
 
 def _log_call(
     *,
+    step: str,
     model: str,
     query: str,
     catalog_ids: list[str],
@@ -79,6 +113,7 @@ def _log_call(
 ) -> None:
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "step": step,
         "model": model,
         "request": {
             "query": query,
@@ -99,6 +134,96 @@ def _log_call(
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def _parse_filters(
+    client: Any,
+    model: str,
+    query: str,
+    film_list: list[dict[str, Any]],
+    catalog_ids: list[str],
+) -> tuple[str, Filters | None]:
+    genres_vocab, langs_vocab = _extract_vocab(film_list)
+    filter_system = (
+        "Извлеки строгие числовые и категориальные ограничения из запроса пользователя. "
+        "Если ограничения нет, оставь поле null (None). "
+        f"Допустимые жанры в каталоге: {json.dumps(genres_vocab, ensure_ascii=False)}. "
+        f"Допустимые языки в каталоге: {json.dumps(langs_vocab, ensure_ascii=False)}. "
+        "Используй только слова из этих списков."
+    )
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": filter_system},
+            {"role": "user", "content": f"<запрос>\n{query}\n</запрос>"},
+        ],
+        "response_format": Filters,
+    }
+    if "qwen3.5" in model:
+        kwargs["reasoning_effort"] = "none"
+
+    t0 = time.perf_counter()
+    outcome = "invalid"
+    flt: Filters | None = None
+    prompt_tokens = 0
+    completion_tokens = 0
+
+    try:
+        response = client.chat.completions.parse(**kwargs)
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+            completion_tokens = getattr(usage, "completion_tokens", 0) or 0
+
+        choice = response.choices[0]
+        finish_reason = getattr(choice, "finish_reason", None)
+        message = choice.message
+
+        if getattr(message, "refusal", None):
+            outcome = "refusal"
+            print(f"Отказ модели: {message.refusal}")
+        elif finish_reason == "length":
+            outcome = "length"
+            print("Ответ модели обрезан по лимиту токенов.")
+        else:
+            parsed = getattr(message, "parsed", None)
+            if parsed is None:
+                raw = getattr(message, "content", "") or ""
+                flt = Filters.model_validate_json(raw)
+            elif isinstance(parsed, Filters):
+                flt = parsed
+            else:
+                flt = Filters.model_validate(parsed, from_attributes=True)
+            outcome = "ok"
+    except LengthFinishReasonError:
+        outcome = "length"
+        print("Ответ модели обрезан по лимиту токенов.")
+    except APIConnectionError:
+        outcome = "no_connection"
+        print("Нет связи с сервером.")
+    except APIStatusError as e:
+        outcome = f"error_{e.status_code}"
+        print(f"Ошибка API ({e.status_code}).")
+    except ValidationError:
+        outcome = "invalid"
+        print("Ошибка разбора фильтров модели.")
+    except Exception:
+        outcome = "invalid"
+        print("Непредвиденная ошибка при разборе фильтров.")
+
+    _log_call(
+        step="filters",
+        model=model,
+        query=query,
+        catalog_ids=catalog_ids,
+        outcome=outcome,
+        ids=[],
+        rejected_ids=[],
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        duration_sec=time.perf_counter() - t0,
+    )
+    return outcome, flt
+
+
 def pick(
     client: Any,
     model: str,
@@ -109,8 +234,30 @@ def pick(
     film_list, by_id = _normalize_catalog(films)
     catalog_ids = list(by_id.keys())
 
+    flt_outcome, flt = _parse_filters(client, model, query, film_list, catalog_ids)
+    if flt_outcome != "ok" or flt is None:
+        return flt_outcome, []
+
+    filtered_films = [f for f in film_list if _matches_filters(f, flt)]
+    if not filtered_films:
+        print("Подходящих фильмов по заданным фильтрам не найдено.")
+        _log_call(
+            step="choice",
+            model=model,
+            query=query,
+            catalog_ids=[],
+            outcome="no_match",
+            ids=[],
+            rejected_ids=[],
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_sec=0.0,
+        )
+        return "no_match", []
+
+    filtered_ids = [str(f["id"]) for f in filtered_films if "id" in f]
     user_content = (
-        f"<каталог>\n{json.dumps(film_list, ensure_ascii=False)}\n</каталог>\n\n"
+        f"<каталог>\n{json.dumps(filtered_films, ensure_ascii=False)}\n</каталог>\n\n"
         f"<запрос>\n{query}\n</запрос>"
     )
 
@@ -167,7 +314,7 @@ def pick(
 
                 for item in parsed.picks:
                     fid = str(item.film_id)
-                    if fid not in by_id:
+                    if fid not in by_id or not _matches_filters(by_id[fid], flt):
                         has_foreign = True
                         rejected_ids.append(fid)
                         continue
@@ -209,9 +356,10 @@ def pick(
 
     duration_sec = time.perf_counter() - t0
     _log_call(
+        step="choice",
         model=model,
         query=query,
-        catalog_ids=catalog_ids,
+        catalog_ids=filtered_ids,
         outcome=outcome,
         ids=ids,
         rejected_ids=rejected_ids,
