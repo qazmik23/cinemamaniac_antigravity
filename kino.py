@@ -41,7 +41,7 @@ SYSTEM_PROMPT = """
 
 class PickItem(BaseModel):
     film_id: str
-    why: str = ""
+    why: str
 
 
 class RecommendationResponse(BaseModel):
