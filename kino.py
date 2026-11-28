@@ -1,7 +1,10 @@
 import json
+import math
 import os
+import re
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -82,8 +85,8 @@ def _matches_filters(film: dict[str, Any], flt: Filters) -> bool:
         return False
     if flt.year_to is not None and (film.get("year") or 0) > flt.year_to:
         return False
-    film_langs = set(film.get("languages", []))
-    if flt.languages and not (film_langs & set(flt.languages)):
+    film_langs = {str(l).lower() for l in film.get("languages", [])}
+    if flt.languages and not (film_langs & {str(l).lower() for l in flt.languages}):
         return False
     film_genres = set(film.get("genres", []))
     if flt.must_genres and not set(flt.must_genres).issubset(film_genres):
@@ -226,6 +229,12 @@ def _parse_filters(
     return outcome, flt
 
 
+INJECTION_RE = re.compile(
+    r"игнорируй\s+каталог|ignore\s+(the\s+)?catalog|забудь\s+инструкц|system\s+prompt",
+    re.IGNORECASE,
+)
+
+
 def pick(
     client: Any,
     model: str,
@@ -235,6 +244,22 @@ def pick(
     """Подбирает 1–3 фильма из каталога films по запросу query."""
     film_list, by_id = _normalize_catalog(films)
     catalog_ids = list(by_id.keys())
+
+    if INJECTION_RE.search(query):
+        print("Запрос отклонён: попытка обойти каталог.")
+        _log_call(
+            step="choice",
+            model=model,
+            query=query,
+            catalog_ids=[],
+            outcome="no_match",
+            ids=[],
+            rejected_ids=[],
+            prompt_tokens=0,
+            completion_tokens=0,
+            duration_sec=0.0,
+        )
+        return "no_match", []
 
     flt_outcome, flt = _parse_filters(client, model, query, film_list, catalog_ids)
     if flt_outcome != "ok" or flt is None:
@@ -370,6 +395,69 @@ def pick(
         duration_sec=duration_sec,
     )
     return outcome, ids
+
+
+def _tokenize(text: str) -> list[str]:
+    return re.findall(r"[a-zа-яёәғқңөұүһі0-9]+", text.lower())
+
+
+def candidates(
+    query: str,
+    films: list[dict[str, Any]] | dict[str, dict[str, Any]],
+    k: int = 30,
+) -> list[str]:
+    """Отбирает до k (по умолчанию 30) id фильмов по TF-IDF без вызова языковой модели."""
+    film_list, _ = _normalize_catalog(films)
+    if not film_list or k <= 0:
+        return []
+
+    q_tokens = _tokenize(query)
+    docs_tokens: list[list[str]] = []
+    df: Counter[str] = Counter()
+
+    for f in film_list:
+        text = " ".join(
+            [
+                str(f.get("title", "")),
+                " ".join(f.get("genres", [])),
+                " ".join(f.get("countries", [])),
+                str(f.get("description", "")),
+            ]
+        )
+        toks = _tokenize(text)
+        docs_tokens.append(toks)
+        df.update(set(toks))
+
+    n_docs = len(film_list)
+    q_counts = Counter(q_tokens)
+    scored: list[tuple[float, int, str]] = []
+
+    for idx, (f, d_toks) in enumerate(zip(film_list, docs_tokens)):
+        fid = str(f.get("id", ""))
+        d_counts = Counter(d_toks)
+        score = 0.0
+        for term, q_tf in q_counts.items():
+            if term in d_counts:
+                idf = math.log((n_docs + 1) / (df[term] + 1)) + 1.0
+                score += (1.0 + math.log(d_counts[term])) * idf * q_tf
+        scored.append((score, -idx, fid))
+
+    scored.sort(reverse=True)
+    return [fid for _, _, fid in scored[:k] if fid]
+
+
+def pick_big(
+    client: Any,
+    model: str,
+    query: str,
+    films: list[dict[str, Any]] | dict[str, dict[str, Any]],
+    k: int = 30,
+) -> tuple[str, list[str]]:
+    """Подбирает 1–3 фильма из большого каталога: сначала candidates(), затем pick()."""
+    _, by_id = _normalize_catalog(films)
+    cand_ids = candidates(query, films, k=k)
+    cand_films = [by_id[fid] for fid in cand_ids if fid in by_id]
+    return pick(client, model, query, cand_films)
 
 
 if __name__ == "__main__":

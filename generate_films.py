@@ -267,6 +267,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Генератор каталога films.json")
     parser.add_argument("--count", type=int, default=40, help="Количество фильмов из title.basics.tsv")
     parser.add_argument("--kz-count", type=int, default=12, help="Количество казахстанских фильмов из TMDB")
+    parser.add_argument("--out", default="films.json", help="Имя выходного JSON-файла")
     args = parser.parse_args()
 
     load_env()
@@ -391,8 +392,8 @@ def main() -> None:
                 print(f"  [KZ {kz_added}/12] {record['id']} — {record['title']}")
         page += 1
 
-    Path("films.json").write_text(json.dumps(films, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Готово! Сохранено {len(films)} фильмов в films.json.")
+    Path(args.out).write_text(json.dumps(films, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Готово! Сохранено {len(films)} фильмов в {args.out}.")
 
 
 if __name__ == "__main__":
